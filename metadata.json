@@ -1,0 +1,6 @@
+{
+  "name": "سامانه جامع مدیریت منابع انسانی",
+  "description": "سامانه سازمانی مدیریت منابع انسانی، بانک پرسنلی و پرونده ۳۶۰ درجه، ورود دسته‌ای از اکسل، ساختار هلدینگ و شرکت‌های تابعه، احراز هویت و گزارش‌های آماری",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

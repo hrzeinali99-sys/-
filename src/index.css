@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* -------------------------------------------------------------
+   Persian Font-Face Declarations (B Titr, B Nazanin, Shabnam, Sahel, Vazirmatn)
+   ------------------------------------------------------------- */
+@font-face {
+  font-family: 'B Titr';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: local('B Titr'), local('BTitr'), local('B_Titr'), local('B Titr Bold'), local('Titr'),
+       url('https://cdn.jsdelivr.net/gh/rastikerdar/shabnam-font@v5.0.1/dist/Shabnam-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'B Titr';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: local('B Titr'), local('BTitr'), local('B_Titr'), local('B Titr Bold'), local('Titr'),
+       url('https://cdn.jsdelivr.net/gh/rastikerdar/shabnam-font@v5.0.1/dist/Shabnam-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'B Nazanin';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('B Nazanin'), local('BNazanin'), local('B_Nazanin'), local('Nazanin'),
+       url('https://cdn.jsdelivr.net/gh/rastikerdar/sahel-font@v3.4.0/dist/Sahel.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'B Nazanin';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: local('B Nazanin Bold'), local('BNazanin Bold'), local('BNazanin-Bold'), local('B_Nazanin Bold'), local('Nazanin Bold'),
+       url('https://cdn.jsdelivr.net/gh/rastikerdar/sahel-font@v3.4.0/dist/Sahel-Bold.woff2') format('woff2');
+}
+
+/* Base font setup and anti-aliasing */
+@layer base {
+  :root {
+    --font-heading: 'B Titr', 'BTitr', 'Titr', 'Shabnam', 'Vazirmatn', sans-serif;
+    --font-body: 'B Nazanin', 'BNazanin', 'Nazanin', 'Vazirmatn', 'Shabnam', sans-serif;
+  }
+
+  html {
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-family: var(--font-body);
+    letter-spacing: -0.01em;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-feature-settings: "cv01" on, "ss01" on;
+    letter-spacing: -0.015em;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', 'Vazirmatn', monospace !important;
+    font-feature-settings: "zero" on;
+  }
+}
+
+/* Typography utilities */
+.font-titr {
+  font-family: 'B Titr', 'BTitr', 'Titr', 'Shabnam', 'Vazirmatn', sans-serif !important;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.font-nazanin {
+  font-family: 'B Nazanin', 'BNazanin', 'Nazanin', 'Sahel', 'Vazirmatn', sans-serif !important;
+}
+
+.font-shabnam {
+  font-family: 'Shabnam', 'Vazirmatn', sans-serif !important;
+}
+
+.font-sahel {
+  font-family: 'Sahel', 'Vazirmatn', sans-serif !important;
+}
+
+.font-samim {
+  font-family: 'Samim', 'Vazirmatn', sans-serif !important;
+}
+
+.font-vazir {
+  font-family: 'Vazirmatn', sans-serif !important;
+}
+
+/* Dynamic Font Themes */
+[data-font-theme="titr-nazanin"] {
+  --font-heading: 'B Titr', 'BTitr', 'Titr', 'Shabnam', 'Vazirmatn', sans-serif;
+  --font-body: 'B Nazanin', 'BNazanin', 'Nazanin', 'Sahel', 'Vazirmatn', sans-serif;
+}
+
+[data-font-theme="titr-vazir"] {
+  --font-heading: 'B Titr', 'BTitr', 'Titr', 'Shabnam', 'Vazirmatn', sans-serif;
+  --font-body: 'Vazirmatn', sans-serif;
+}
+
+[data-font-theme="nazanin"] {
+  --font-heading: 'B Nazanin', 'BNazanin', 'Nazanin', 'Sahel', 'Vazirmatn', sans-serif;
+  --font-body: 'B Nazanin', 'BNazanin', 'Nazanin', 'Sahel', 'Vazirmatn', sans-serif;
+}
+
+[data-font-theme="shabnam"] {
+  --font-heading: 'Shabnam', 'Vazirmatn', sans-serif;
+  --font-body: 'Shabnam', 'Vazirmatn', sans-serif;
+}
+
+[data-font-theme="vazir"] {
+  --font-heading: 'Vazirmatn', sans-serif;
+  --font-body: 'Vazirmatn', sans-serif;
+}
+
+/* Persian digit and numeral presentation */
+.persian-digits {
+  font-feature-settings: "ss01" on, "cv01" on;
+}
+
+/* Custom modern scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Number display helpers */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

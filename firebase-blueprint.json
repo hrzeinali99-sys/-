@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "System user account and authentication profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User unique identifier" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User full name" },
+        "role": { "type": "string", "description": "User role" },
+        "photoURL": { "type": "string", "description": "Avatar photo URL" },
+        "departmentId": { "type": "string", "description": "Department ID" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee summary and master record",
+      "type": "object",
+      "properties": {
+        "employeeCode": { "type": "string", "description": "Personnel code" },
+        "firstName": { "type": "string", "description": "First name in Persian" },
+        "lastName": { "type": "string", "description": "Last name in Persian" },
+        "nationalId": { "type": "string", "description": "10-digit National ID" },
+        "companyId": { "type": "string", "description": "Company reference ID" },
+        "departmentId": { "type": "string", "description": "Department reference ID" },
+        "positionTitle": { "type": "string", "description": "Job position title" },
+        "employmentStatus": { "type": "string", "description": "Current status" },
+        "contractType": { "type": "string", "description": "Type of employment contract" },
+        "hireDate": { "type": "string", "description": "Employment date" }
+      },
+      "required": ["employeeCode", "firstName", "lastName", "nationalId", "companyId"]
+    },
+    "EmploymentContract": {
+      "title": "EmploymentContract",
+      "description": "Official employment contract record",
+      "type": "object",
+      "properties": {
+        "contractNumber": { "type": "string", "description": "Contract serial number" },
+        "employeeId": { "type": "string", "description": "Employee ID" },
+        "employeeName": { "type": "string", "description": "Employee full name" },
+        "companyId": { "type": "string", "description": "Company ID" },
+        "companyName": { "type": "string", "description": "Company name" },
+        "periodType": { "type": "string", "description": "Contract duration period" },
+        "durationMonths": { "type": "number", "description": "Duration in months" },
+        "startDateJalali": { "type": "string", "description": "Start date in Jalali" },
+        "endDateJalali": { "type": "string", "description": "End date in Jalali" },
+        "monthlyBaseSalary": { "type": "number", "description": "Base salary in Rials" },
+        "status": { "type": "string", "description": "Contract status" }
+      },
+      "required": ["contractNumber", "employeeId", "companyId", "periodType", "startDateJalali", "endDateJalali"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Organization company or holding entity",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Company name" },
+        "code": { "type": "string", "description": "Company code" },
+        "type": { "type": "string", "description": "Holding or subsidiary" },
+        "status": { "type": "string", "description": "Active status" }
+      },
+      "required": ["name", "code"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System audit log entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Actor user ID" },
+        "userName": { "type": "string", "description": "Actor name" },
+        "action": { "type": "string", "description": "Action performed" },
+        "entityType": { "type": "string", "description": "Entity affected" },
+        "timestamp": { "type": "string", "description": "Timestamp" }
+      },
+      "required": ["userId", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and credentials"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Employee master records"
+    },
+    "/contracts/{contractId}": {
+      "schema": "EmploymentContract",
+      "description": "Employment contracts"
+    },
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "Companies and subsidiaries"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System activity audit logs"
+    }
+  }
+}
