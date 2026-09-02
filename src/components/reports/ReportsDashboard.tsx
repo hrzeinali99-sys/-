@@ -2,23 +2,24 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FileText, Download, Printer, Filter, Search, RefreshCw,
   BarChart3, PieChart as PieIcon, Users, Calendar, DollarSign,
-  Briefcase, ShieldCheck, AlertCircle, CheckCircle2, FileSpreadsheet,
+  Briefcase, ShieldCheck, ShieldAlert, AlertCircle, CheckCircle2, FileSpreadsheet,
   ChevronDown, ArrowUpDown, Clock, Building2, MapPin, Award,
   GraduationCap, HeartHandshake, Eye, Sparkles, Layers, SlidersHorizontal,
-  Building, FileSignature, ChevronLeft, Plus, Check, ArrowRight, X
+  Building, FileSignature, ChevronLeft, Plus, Check, ArrowRight, X,
+  Coins, Landmark, CalendarDays, TrendingUp
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
   Tooltip as RechartsTooltip, Legend, PieChart, Pie, Cell,
-  CartesianGrid
+  CartesianGrid, AreaChart, Area
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../../context/AuthContext';
 import { getEmployees } from '../../services/employeeService';
 import { getDepartments, getBranches, DEFAULT_COMPANIES } from '../../services/masterDataService';
 import { EmployeeSummary, Department, Branch, ContractType, EmploymentStatus, EmploymentContract } from '../../types';
-import { formatRial, toPersianDigits, formatNumber } from '../../utils/formatters';
-import { toJalaliDate, getCurrentJalaliDate, toJalaliDateTime } from '../../utils/persianDate';
+import { formatRial, formatToman, toPersianDigits, formatNumber } from '../../utils/formatters';
+import { toJalaliDate, getCurrentJalaliDate, toJalaliDateTime, getJalaliMonthName, getJalaliCurrentYear } from '../../utils/persianDate';
 import { 
   getContractRecommendation, 
   ContractRecommendation, 
@@ -31,6 +32,8 @@ import { ContractPrintView } from '../contracts/ContractPrintView';
 
 export type ReportType = 
   | 'contract_recommendations'
+  | 'periodic'
+  | 'guarantee'
   | 'general' 
   | 'contracts' 
   | 'payroll' 
@@ -48,6 +51,14 @@ export const ReportsDashboard: React.FC = () => {
 
   // Active Report Tab
   const [activeReport, setActiveReport] = useState<ReportType>('contract_recommendations');
+
+  // Period (Monthly / Yearly) Filter State
+  const [periodMode, setPeriodMode] = useState<'all' | 'monthly' | 'yearly'>('all');
+  const [selectedYear, setSelectedYear] = useState<string>(String(getJalaliCurrentYear() || 1403));
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+
+  // Guarantee Promissory Note Filter
+  const [selectedGuaranteeStatus, setSelectedGuaranteeStatus] = useState<'all' | 'received' | 'pending' | 'returned'>('all');
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,6 +104,10 @@ export const ReportsDashboard: React.FC = () => {
     endDate: true,
     baseSalary: true,
     netSalary: false,
+    guaranteeAmount: true,
+    guaranteeStatus: true,
+    guaranteeNumber: false,
+    guaranteeGuarantor: false,
     mobile: true,
     workEmail: false,
     sheba: false,
@@ -129,16 +144,46 @@ export const ReportsDashboard: React.FC = () => {
     fetchData();
   }, []);
 
-  // Filtered dataset with attached recommendation calculation
+  // Filtered dataset with attached recommendation and guarantee normalization
   const filteredEmployeesWithRec = useMemo(() => {
     const now = new Date();
 
     return employees
       .map(emp => {
         const rec = getContractRecommendation(emp);
+        
+        // Extract guarantee note attributes with fallback checks
+        const addInfo = (emp as any).additionalInfo || {};
+        const gAmount = emp.guaranteeNoteAmount ?? addInfo.guaranteeNoteAmount ?? 1000000000;
+        const gStatus = emp.guaranteeNoteStatus ?? addInfo.guaranteeNoteStatus ?? 'received';
+        const gNumber = emp.guaranteeNoteNumber ?? addInfo.guaranteeNoteNumber ?? `SF-${emp.employeeCode || '00'}`;
+        const gReceivedDate = emp.guaranteeNoteReceivedDateJalali ?? addInfo.guaranteeNoteReceivedDateJalali ?? emp.hireDateJalali ?? toJalaliDate(emp.hireDate);
+        const gDueDate = emp.guaranteeNoteDueDateJalali ?? addInfo.guaranteeNoteDueDateJalali ?? 'پایان همکاری';
+        const gGuarantor = emp.guaranteeNoteGuarantorName ?? addInfo.guaranteeNoteGuarantorName ?? 'ضامن معتبر / کارمند رسمی';
+        const gDesc = emp.guaranteeNoteDescription ?? addInfo.guaranteeNoteDescription ?? 'تضمین حسن انجام کار و تعهدات شغلی';
+
+        // Extract Jalali hire year and month for periodic analysis
+        const hireJalali = emp.hireDateJalali || toJalaliDate(emp.hireDate);
+        let hireYear = '';
+        let hireMonth = '';
+        if (hireJalali && hireJalali.includes('/')) {
+          const parts = hireJalali.split('/');
+          hireYear = parts[0];
+          hireMonth = String(parseInt(parts[1], 10));
+        }
+
         return {
           ...emp,
-          contractRec: rec
+          contractRec: rec,
+          guaranteeNoteAmount: gAmount,
+          guaranteeNoteStatus: gStatus,
+          guaranteeNoteNumber: gNumber,
+          guaranteeNoteReceivedDateJalali: gReceivedDate,
+          guaranteeNoteDueDateJalali: gDueDate,
+          guaranteeNoteGuarantorName: gGuarantor,
+          guaranteeNoteDescription: gDesc,
+          hireYear,
+          hireMonth
         };
       })
       .filter(emp => {
@@ -152,6 +197,8 @@ export const ReportsDashboard: React.FC = () => {
           const comp = (emp.companyName || '').toLowerCase();
           const dept = (emp.departmentName || '').toLowerCase();
           const pos = (emp.positionTitle || '').toLowerCase();
+          const guarantor = (emp.guaranteeNoteGuarantorName || '').toLowerCase();
+          const noteNo = (emp.guaranteeNoteNumber || '').toLowerCase();
           const recLabel = emp.contractRec.periodLabel.toLowerCase();
           if (
             !fullName.includes(q) && 
@@ -161,10 +208,31 @@ export const ReportsDashboard: React.FC = () => {
             !pos.includes(q) && 
             !dept.includes(q) &&
             !comp.includes(q) && 
+            !guarantor.includes(q) &&
+            !noteNo.includes(q) &&
             !recLabel.includes(q)
           ) {
             return false;
           }
+        }
+
+        // Periodic (Monthly / Yearly) Filter
+        if (periodMode === 'yearly') {
+          if (selectedYear !== 'all' && emp.hireYear && emp.hireYear !== selectedYear) {
+            return false;
+          }
+        } else if (periodMode === 'monthly') {
+          if (selectedYear !== 'all' && emp.hireYear && emp.hireYear !== selectedYear) {
+            return false;
+          }
+          if (selectedMonth !== 'all' && emp.hireMonth && emp.hireMonth !== selectedMonth) {
+            return false;
+          }
+        }
+
+        // Guarantee Promissory Note Status Filter
+        if (selectedGuaranteeStatus !== 'all') {
+          if (emp.guaranteeNoteStatus !== selectedGuaranteeStatus) return false;
         }
 
         // Company filter
@@ -223,6 +291,9 @@ export const ReportsDashboard: React.FC = () => {
         } else if (sortField === 'recommendedPeriod') {
           valA = a.contractRec?.periodLabel ?? '';
           valB = b.contractRec?.periodLabel ?? '';
+        } else if (sortField === 'guaranteeNoteAmount') {
+          valA = a.guaranteeNoteAmount ?? 0;
+          valB = b.guaranteeNoteAmount ?? 0;
         } else if (sortField === 'fullName') {
           valA = `${a.firstName || ''} ${a.lastName || ''}`;
           valB = `${b.firstName || ''} ${b.lastName || ''}`;
@@ -235,9 +306,9 @@ export const ReportsDashboard: React.FC = () => {
         return 0;
       });
   }, [
-    employees, searchQuery, selectedCompany, selectedDept, selectedBranch, 
-    selectedContract, selectedStatus, selectedGender, selectedRuleCategory,
-    contractExpiryFilter, minSalary, maxSalary, sortField, sortAsc
+    employees, searchQuery, periodMode, selectedYear, selectedMonth, selectedGuaranteeStatus,
+    selectedCompany, selectedDept, selectedBranch, selectedContract, selectedStatus, 
+    selectedGender, selectedRuleCategory, contractExpiryFilter, minSalary, maxSalary, sortField, sortAsc
   ]);
 
   const filteredEmployees = filteredEmployeesWithRec;
@@ -267,13 +338,34 @@ export const ReportsDashboard: React.FC = () => {
     const totalPayroll = validSalaries.reduce((acc, curr) => acc + curr, 0);
     const avgSalary = validSalaries.length > 0 ? Math.round(totalPayroll / validSalaries.length) : 0;
 
+    // Guarantee Promissory Note Metrics (سفته‌های ضمانت حسن انجام کار)
+    const validGuarantees = filteredEmployees.map(e => e.guaranteeNoteAmount || 0);
+    const totalGuaranteeAmount = validGuarantees.reduce((acc, curr) => acc + curr, 0);
+    const totalGuaranteeToman = Math.round(totalGuaranteeAmount / 10);
+    const receivedGuaranteeCount = filteredEmployees.filter(e => e.guaranteeNoteStatus === 'received' || !e.guaranteeNoteStatus).length;
+    const pendingGuaranteeCount = filteredEmployees.filter(e => e.guaranteeNoteStatus === 'pending').length;
+    const returnedGuaranteeCount = filteredEmployees.filter(e => e.guaranteeNoteStatus === 'returned').length;
+
+    // Guarantee Custody Distribution Data for Pie Chart
+    const guaranteeCustodyChartData = [
+      { name: 'موجود در صندوق امانات', value: receivedGuaranteeCount, color: '#059669' },
+      { name: 'در انتظار تحویل / نقص مدرک', value: pendingGuaranteeCount, color: '#d97706' },
+      { name: 'عودت داده شده به پرسنل', value: returnedGuaranteeCount, color: '#64748b' }
+    ].filter(item => item.value > 0);
+
     // Department Distribution
     const deptMap: Record<string, number> = {};
+    const deptGuaranteeMap: Record<string, number> = {};
     filteredEmployees.forEach(e => {
       const dName = e.departmentName || 'نامشخص';
       deptMap[dName] = (deptMap[dName] || 0) + 1;
+      deptGuaranteeMap[dName] = (deptGuaranteeMap[dName] || 0) + (e.guaranteeNoteAmount || 0);
     });
-    const deptChartData = Object.keys(deptMap).map(k => ({ name: k, count: deptMap[k] }));
+    const deptChartData = Object.keys(deptMap).map(k => ({ 
+      name: k, 
+      count: deptMap[k],
+      guaranteeMillionToman: Math.round((deptGuaranteeMap[k] || 0) / 10000000)
+    }));
 
     // Contract Type Distribution
     const contractMap: Record<string, number> = {};
@@ -301,6 +393,38 @@ export const ReportsDashboard: React.FC = () => {
       { name: 'خانم‌ها', value: genderMap['زن'] }
     ];
 
+    // Monthly 12-Month Distribution Data (روند استخدام‌ها و بودجه حقوق در ۱۲ ماه سال)
+    const monthNames = [
+      'فروردین', 'اردیبهشت', 'خرداد',
+      'تیر', 'مرداد', 'شهریور',
+      'مهر', 'آبان', 'آذر',
+      'دی', 'بهمن', 'اسفند'
+    ];
+    
+    const monthlyStats = monthNames.map((mName, mIdx) => {
+      const monthNumStr = String(mIdx + 1);
+      const empsInMonth = employees.filter(e => {
+        const hJalali = e.hireDateJalali || toJalaliDate(e.hireDate);
+        if (!hJalali || !hJalali.includes('/')) return false;
+        const parts = hJalali.split('/');
+        const m = String(parseInt(parts[1], 10));
+        const y = parts[0];
+        if (selectedYear !== 'all' && y !== selectedYear) return false;
+        return m === monthNumStr;
+      });
+
+      const monthPayroll = empsInMonth.reduce((acc, cur) => acc + (cur.baseSalary || 0), 0);
+      const monthGuarantees = empsInMonth.reduce((acc, cur) => acc + (cur.guaranteeNoteAmount || 1000000000), 0);
+
+      return {
+        month: mName,
+        monthIndex: mIdx + 1,
+        hires: empsInMonth.length,
+        payrollMillion: Math.round(monthPayroll / 10000000), // in Million Tomans
+        guaranteeBillion: Math.round(monthGuarantees / 10000000000) // in Billion Rials
+      };
+    });
+
     return {
       totalCount,
       activeCount,
@@ -311,14 +435,21 @@ export const ReportsDashboard: React.FC = () => {
       expiringIn30Days,
       totalPayroll,
       avgSalary,
+      totalGuaranteeAmount,
+      totalGuaranteeToman,
+      receivedGuaranteeCount,
+      pendingGuaranteeCount,
+      returnedGuaranteeCount,
+      guaranteeCustodyChartData,
       deptChartData,
       contractChartData,
       recChartData,
       genderChartData,
+      monthlyStats,
       menCount: genderMap['مرد'],
       womenCount: genderMap['زن']
     };
-  }, [filteredEmployees]);
+  }, [filteredEmployees, employees, selectedYear]);
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -331,6 +462,10 @@ export const ReportsDashboard: React.FC = () => {
 
   const handleResetFilters = () => {
     setSearchQuery('');
+    setPeriodMode('all');
+    setSelectedYear(String(getJalaliCurrentYear() || 1403));
+    setSelectedMonth('all');
+    setSelectedGuaranteeStatus('all');
     setSelectedCompany('all');
     setSelectedDept('all');
     setSelectedBranch('all');
@@ -355,6 +490,8 @@ export const ReportsDashboard: React.FC = () => {
   const reportSchema = useMemo(() => {
     const reportTitleMap: Record<ReportType, string> = {
       contract_recommendations: 'گزارش تنظیم هوشمند قراردادها (بر اساس سابقه و رده)',
+      periodic: `گزارش تحلیلی دوره‌ای (${periodMode === 'monthly' ? `ماهانه - ${selectedMonth !== 'all' ? getJalaliMonthName(Number(selectedMonth)) : 'همه ماه‌ها'} سال ${toPersianDigits(selectedYear)}` : periodMode === 'yearly' ? `سالانه - سال ${toPersianDigits(selectedYear)}` : 'جامع کلیه دوره‌ها'})`,
+      guarantee: 'گزارش جامع سفته‌های ضمانت حسن انجام کار و تضامین پرسنلی',
       general: 'گزارش جامع اطلاعات پرسنلی',
       contracts: 'گزارش قراردادها و وضعیت انقضا',
       payroll: 'گزارش احکام مالی و حقوق‌دستمزد',
@@ -384,6 +521,43 @@ export const ReportsDashboard: React.FC = () => {
         ];
         break;
 
+      case 'periodic':
+        columns = [
+          { key: 'row', label: 'ردیف', align: 'center', width: 6 },
+          { key: 'code', label: 'کد پرسنلی', align: 'center', width: 12 },
+          { key: 'name', label: 'نام و نام خانوادگی', width: 22 },
+          { key: 'nationalId', label: 'کد ملی', align: 'center', width: 14 },
+          { key: 'companyDept', label: 'شرکت و دپارتمان', width: 22 },
+          { key: 'position', label: 'سمت سازمانی', width: 20 },
+          { key: 'hireDate', label: 'تاریخ استخدام', align: 'center', width: 14 },
+          { key: 'tenure', label: 'طول سابقه خدمت', width: 18 },
+          { key: 'baseSalary', label: 'حقوق ماهانه (ریال)', align: 'left', width: 18 },
+          { key: 'annualEstimatedSalary', label: 'برآورد هزینه سالانه (ریال)', align: 'left', width: 22 },
+          { key: 'guaranteeAmountToman', label: 'مبلغ سفته ضمانت (تومان)', align: 'left', width: 20 },
+          { key: 'guaranteeStatus', label: 'وضعیت سفته در صندوق', align: 'center', width: 18 },
+          { key: 'status', label: 'وضعیت همکاری', align: 'center', width: 14 }
+        ];
+        break;
+
+      case 'guarantee':
+        columns = [
+          { key: 'row', label: 'ردیف', align: 'center', width: 6 },
+          { key: 'code', label: 'کد پرسنلی', align: 'center', width: 12 },
+          { key: 'name', label: 'نام و نام خانوادگی پرسنل', width: 22 },
+          { key: 'nationalId', label: 'کد ملی', align: 'center', width: 14 },
+          { key: 'companyDept', label: 'دپارتمان و شرکت', width: 22 },
+          { key: 'position', label: 'سمت سازمانی', width: 20 },
+          { key: 'guaranteeAmountRial', label: 'مبلغ سفته (ریال)', align: 'left', width: 20 },
+          { key: 'guaranteeAmountToman', label: 'معادل به تومان', align: 'left', width: 18 },
+          { key: 'guaranteeStatus', label: 'وضعیت لاشه سفته', align: 'center', width: 18 },
+          { key: 'guaranteeNumber', label: 'شماره سریال لاشه سفته', align: 'center', width: 18 },
+          { key: 'guaranteeGuarantor', label: 'نام ضامن سفته', width: 22 },
+          { key: 'guaranteeReceivedDate', label: 'تاریخ تحویل به صندوق', align: 'center', width: 16 },
+          { key: 'guaranteeDueDate', label: 'تاریخ اعتبار / سررسید', align: 'center', width: 16 },
+          { key: 'guaranteeDesc', label: 'محل نگهداری و توضیحات', width: 26 }
+        ];
+        break;
+
       case 'general':
         columns = [
           { key: 'row', label: 'ردیف', align: 'center', width: 6 },
@@ -398,6 +572,7 @@ export const ReportsDashboard: React.FC = () => {
           { key: 'status', label: 'وضعیت', align: 'center', width: 12 },
           { key: 'contractType', label: 'نوع قرارداد', width: 14 },
           { key: 'hireDate', label: 'تاریخ استخدام', align: 'center', width: 14 },
+          { key: 'guaranteeAmountToman', label: 'سفته ضمانت (تومان)', align: 'left', width: 18 },
           { key: 'mobile', label: 'تلفن همراه', align: 'center', width: 14 },
           { key: 'workEmail', label: 'ایمیل سازمانی', width: 20 }
         ];
@@ -430,6 +605,7 @@ export const ReportsDashboard: React.FC = () => {
           { key: 'contractType', label: 'نوع قرارداد', width: 14 },
           { key: 'baseSalary', label: 'حقوق پایه (ریال)', align: 'left', width: 18 },
           { key: 'netSalary', label: 'خالص دریافتی (ریال)', align: 'left', width: 18 },
+          { key: 'guaranteeAmountToman', label: 'وثیقه سفته (تومان)', align: 'left', width: 18 },
           { key: 'sheba', label: 'شماره شبا (IBAN)', width: 24 },
           { key: 'bankName', label: 'بانک عامل', width: 14 },
           { key: 'marital', label: 'وضعیت تأهل', align: 'center', width: 12 },
@@ -504,6 +680,10 @@ export const ReportsDashboard: React.FC = () => {
         if (selectedColumns.endDate) columns.push({ key: 'endDate', label: 'پایان قرارداد', align: 'center', width: 14 });
         if (selectedColumns.baseSalary) columns.push({ key: 'baseSalary', label: 'حقوق پایه (ریال)', align: 'left', width: 18 });
         if (selectedColumns.netSalary) columns.push({ key: 'netSalary', label: 'خالص دریافتی (ریال)', align: 'left', width: 18 });
+        if (selectedColumns.guaranteeAmount) columns.push({ key: 'guaranteeAmountToman', label: 'سفته ضمانت (تومان)', align: 'left', width: 18 });
+        if (selectedColumns.guaranteeStatus) columns.push({ key: 'guaranteeStatus', label: 'وضعیت سفته در صندوق', align: 'center', width: 16 });
+        if (selectedColumns.guaranteeNumber) columns.push({ key: 'guaranteeNumber', label: 'شماره لاشه سفته', align: 'center', width: 16 });
+        if (selectedColumns.guaranteeGuarantor) columns.push({ key: 'guaranteeGuarantor', label: 'نام ضامن سفته', width: 20 });
         if (selectedColumns.sheba) columns.push({ key: 'sheba', label: 'شماره شبا', width: 24 });
         if (selectedColumns.bankName) columns.push({ key: 'bankName', label: 'نام بانک', width: 14 });
         if (selectedColumns.mobile) columns.push({ key: 'mobile', label: 'شماره همراه', align: 'center', width: 14 });
@@ -548,9 +728,19 @@ export const ReportsDashboard: React.FC = () => {
         retired: 'بازنشسته'
       };
 
+      const guaranteeStatusMap: Record<string, string> = {
+        received: 'تحویل در صندوق امانات',
+        pending: 'در انتظار تحویل / ناقص',
+        returned: 'عودت داده شده به پرسنل'
+      };
+
       const childrenDatesStr = (emp.childrenBirthDatesJalali && emp.childrenBirthDatesJalali.length > 0)
         ? emp.childrenBirthDatesJalali.join(' ، ')
         : (emp.childBirthDateJalali || (emp.childBirthDate ? toJalaliDate(emp.childBirthDate) : '-'));
+
+      const gAmountRials = emp.guaranteeNoteAmount || 1000000000;
+      const gAmountTomans = Math.round(gAmountRials / 10);
+      const annualEst = (emp.baseSalary || 0) * 12;
 
       const rowData: Record<string, any> = {
         raw: emp,
@@ -579,7 +769,18 @@ export const ReportsDashboard: React.FC = () => {
         expiryStatus: expiryStatusText,
         baseSalary: emp.baseSalary ? formatNumber(emp.baseSalary) : '۰',
         baseSalaryRaw: emp.baseSalary || 0,
+        annualEstimatedSalary: annualEst ? formatNumber(annualEst) : '۰',
         netSalary: emp.netSalary ? formatNumber(emp.netSalary) : (emp.baseSalary ? formatNumber(emp.baseSalary) : '۰'),
+        guaranteeAmountRial: formatNumber(gAmountRials),
+        guaranteeAmountToman: formatNumber(gAmountTomans),
+        guaranteeAmountRaw: gAmountRials,
+        guaranteeStatus: guaranteeStatusMap[emp.guaranteeNoteStatus] || 'تحویل در صندوق امانات',
+        guaranteeStatusRaw: emp.guaranteeNoteStatus || 'received',
+        guaranteeNumber: emp.guaranteeNoteNumber || '-',
+        guaranteeGuarantor: emp.guaranteeNoteGuarantorName || '-',
+        guaranteeReceivedDate: emp.guaranteeNoteReceivedDateJalali || '-',
+        guaranteeDueDate: emp.guaranteeNoteDueDateJalali || 'پایان خدمت',
+        guaranteeDesc: emp.guaranteeNoteDescription || 'تضمین حسن انجام کار',
         sheba: (emp as any).bankAccount?.iban || emp.costCenterCode || '-',
         bankName: (emp as any).bankAccount?.bankName || '-',
         mobile: emp.mobile || '-',
@@ -607,7 +808,7 @@ export const ReportsDashboard: React.FC = () => {
       columns,
       rows
     };
-  }, [activeReport, filteredEmployees, selectedColumns]);
+  }, [activeReport, filteredEmployees, selectedColumns, periodMode, selectedYear, selectedMonth]);
 
   // =========================================================================
   // Export to Excel (100% RTL & Exact Column Match)
@@ -730,6 +931,32 @@ export const ReportsDashboard: React.FC = () => {
         >
           <Sparkles className="w-4 h-4" />
           <span>تنظیم هوشمند قراردادها (بر اساس سابقه و رده)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveReport('periodic')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+            activeReport === 'periodic'
+              ? 'bg-emerald-700 text-white shadow-sm'
+              : 'hover:bg-slate-100 text-slate-700'
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+          <span>گزارش ماهانه و سالانه (دوره‌ای)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveReport('guarantee')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+            activeReport === 'guarantee'
+              ? 'bg-emerald-700 text-white shadow-sm'
+              : 'hover:bg-slate-100 text-slate-700'
+          }`}
+        >
+          <ShieldAlert className="w-4 h-4" />
+          <span>سفته‌های ضمانت و تضامین پرسنلی</span>
         </button>
 
         <button
@@ -880,12 +1107,12 @@ export const ReportsDashboard: React.FC = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
           
           {/* Search Box */}
-          <div>
+          <div className="lg:col-span-2">
             <label className="block text-slate-500 font-bold mb-1.5">
-              جستجوی متنی (نام، کد ملی، پرسنلی، سمت)
+              جستجوی متنی (نام، کد ملی، پرسنلی، ضامن، سریال سفته)
             </label>
             <div className="relative">
               <input
@@ -897,6 +1124,85 @@ export const ReportsDashboard: React.FC = () => {
               />
               <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
             </div>
+          </div>
+
+          {/* Period Mode Filter (همه / ماهانه / سالانه) */}
+          <div>
+            <label className="block text-slate-500 font-bold mb-1.5">
+              بازه زمانی گزارش
+            </label>
+            <select
+              value={periodMode}
+              onChange={(e) => setPeriodMode(e.target.value as any)}
+              className="w-full h-10 bg-emerald-50/60 border border-emerald-300 rounded-xl px-3 text-xs text-emerald-950 font-bold focus:bg-white focus:outline-none focus:border-emerald-500 transition-all text-right"
+            >
+              <option value="all">کلیه دوره‌ها (بدون تفکیک)</option>
+              <option value="yearly">گزارش سالانه</option>
+              <option value="monthly">گزارش ماهانه</option>
+            </select>
+          </div>
+
+          {/* Year Selector */}
+          <div>
+            <label className="block text-slate-500 font-bold mb-1.5">
+              سال خورشیدی
+            </label>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl px-3 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-emerald-500 transition-all font-mono text-right"
+            >
+              <option value="all">همه سال‌ها</option>
+              <option value="1404">۱۴۰۴</option>
+              <option value="1403">۱۴۰۳</option>
+              <option value="1402">۱۴۰۲</option>
+              <option value="1401">۱۴۰۱</option>
+              <option value="1400">۱۴۰۰</option>
+            </select>
+          </div>
+
+          {/* Month Selector */}
+          <div>
+            <label className="block text-slate-500 font-bold mb-1.5">
+              ماه خورشیدی
+            </label>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              disabled={periodMode === 'yearly' || periodMode === 'all'}
+              className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl px-3 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-emerald-500 transition-all disabled:opacity-50 text-right"
+            >
+              <option value="all">همه ماه‌ها</option>
+              <option value="1">فروردین</option>
+              <option value="2">اردیبهشت</option>
+              <option value="3">خرداد</option>
+              <option value="4">تیر</option>
+              <option value="5">مرداد</option>
+              <option value="6">شهریور</option>
+              <option value="7">مهر</option>
+              <option value="8">آبان</option>
+              <option value="9">آذر</option>
+              <option value="10">دی</option>
+              <option value="11">بهمن</option>
+              <option value="12">اسفند</option>
+            </select>
+          </div>
+
+          {/* Guarantee Promissory Note Status Filter */}
+          <div>
+            <label className="block text-slate-500 font-bold mb-1.5">
+              وضعیت سفته ضمانت
+            </label>
+            <select
+              value={selectedGuaranteeStatus}
+              onChange={(e) => setSelectedGuaranteeStatus(e.target.value)}
+              className="w-full h-10 bg-amber-50/70 border border-amber-300 rounded-xl px-3 text-xs text-amber-950 font-bold focus:bg-white focus:outline-none focus:border-amber-500 transition-all text-right"
+            >
+              <option value="all">تمام وضعیت‌های سفته</option>
+              <option value="received">موجود در صندوق امانات</option>
+              <option value="pending">در انتظار تحویل / نقص مدرک</option>
+              <option value="returned">عودت داده شده به پرسنل</option>
+            </select>
           </div>
 
           {/* Contract Rule Category Filter */}
@@ -1118,104 +1424,233 @@ export const ReportsDashboard: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* 6. Analytical Charts Section (RTL Tooltips & Alignments) */}
+      {/* 6. Analytical Charts Section (Dynamic by Report Type) */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Recommended Contract Periods Breakdown Pie Chart */}
-        <div className="lg:col-span-6 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-600" />
-                <span>ترکیب قراردادهای پیشنهادی هوشمند</span>
-              </h3>
-              <PieIcon className="w-5 h-5 text-emerald-600" />
-            </div>
-            <span className="text-xs text-slate-400">توزیع قراردادهای ۱ ماهه، ۳ ماهه، ۶ ماهه و سالانه بر اساس سابقه و رتبه</span>
+      {activeReport === 'guarantee' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Promissory Notes Custody Status Pie */}
+          <div className="lg:col-span-5 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>وضعیت نگهداری لاشه سفته‌های ضمانت</span>
+                </h3>
+                <PieIcon className="w-5 h-5 text-emerald-600" />
+              </div>
+              <span className="text-xs text-slate-400">تحویل در صندوق امانات مالی، نواقص و عودت‌شده‌ها</span>
 
-            <div className="h-56 w-full mt-2">
-              {metrics.recChartData.length > 0 ? (
+              <div className="h-56 w-full mt-2">
+                {metrics.guaranteeCustodyChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={metrics.guaranteeCustodyChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={45}
+                        outerRadius={80}
+                        paddingAngle={4}
+                        dataKey="value"
+                      >
+                        {metrics.guaranteeCustodyChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        contentStyle={{ direction: 'rtl', textAlign: 'right', backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px' }}
+                        formatter={(val: any) => [`${toPersianDigits(val)} فقره`, 'تعداد سفته']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                    داده‌ای یافت نشد
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-3 border-t border-slate-100">
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-center">
+                <span className="text-[10px] text-emerald-700 block font-bold">موجود در صندوق</span>
+                <span className="text-xs font-black text-emerald-950 mt-0.5 block">{toPersianDigits(metrics.receivedGuaranteeCount)} فقره</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-100 text-center">
+                <span className="text-[10px] text-amber-700 block font-bold">در انتظار / نقص</span>
+                <span className="text-xs font-black text-amber-950 mt-0.5 block">{toPersianDigits(metrics.pendingGuaranteeCount)} فقره</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-center">
+                <span className="text-[10px] text-slate-600 block font-bold">عودت داده شده</span>
+                <span className="text-xs font-black text-slate-900 mt-0.5 block">{toPersianDigits(metrics.returnedGuaranteeCount)} فقره</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Promissory Notes Sum by Department */}
+          <div className="lg:col-span-7 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black text-slate-800">
+                  توزیع مبالغ وثایق و سفته‌ها بر حسب دپارتمان سازمانی
+                </h3>
+                <span className="text-xs text-slate-400">مجموع ارزش ریالی تضامین پرسنلی به میلیون تومان</span>
+              </div>
+              <BarChart3 className="w-5 h-5 text-emerald-600" />
+            </div>
+
+            <div className="h-64 w-full">
+              {metrics.deptChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={metrics.recChartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={80}
-                      paddingAngle={4}
-                      dataKey="value"
-                    >
-                      {metrics.recChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
+                  <BarChart data={metrics.deptChartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} interval={0} angle={-15} textAnchor="end" />
+                    <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
                     <RechartsTooltip 
                       contentStyle={{ direction: 'rtl', textAlign: 'right', backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px' }}
-                      formatter={(val: any) => [`${toPersianDigits(val)} نفر`, 'تعداد']}
+                      formatter={(value: any) => [`${toPersianDigits(value)} میلیون تومان`, 'مجموع وثیقه']}
                     />
-                  </PieChart>
+                    <Bar dataKey="guaranteeMillionToman" fill="#0d9488" radius={[8, 8, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                  داده‌ای یافت نشد
+                  رکوردی جهت نمایش در نمودار یافت نشد
                 </div>
               )}
             </div>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-3 border-t border-slate-100">
-            {metrics.recChartData.map((item) => (
-              <div 
-                key={item.name} 
-                className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-[11px]"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-slate-600 truncate max-w-[90px]">{item.name}</span>
-                </div>
-                <span className="font-black text-slate-900">{toPersianDigits(item.value)} نفر</span>
-              </div>
-            ))}
-          </div>
         </div>
-
-        {/* Department Distribution Bar Chart */}
-        <div className="lg:col-span-6 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+      ) : activeReport === 'periodic' ? (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-black text-slate-800">
-                توزیع پرسنل در دپارتمان‌های مختلف
+              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-emerald-600" />
+                <span>تحلیل روند ۱۲ ماهه جذب نیرو و بودجه سالانه حقوق ({toPersianDigits(selectedYear)})</span>
               </h3>
-              <span className="text-xs text-slate-400">تعداد نیروی انسانی بر اساس واحد سازمانی</span>
+              <span className="text-xs text-slate-400">نمودار ترکیبی جذب پرسنل و بار مالی ماهانه حقوق در سال انتخابی</span>
             </div>
             <BarChart3 className="w-5 h-5 text-emerald-600" />
           </div>
 
-          <div className="h-64 w-full">
-            {metrics.deptChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={metrics.deptChartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} interval={0} angle={-15} textAnchor="end" />
-                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
-                  <RechartsTooltip 
-                    contentStyle={{ direction: 'rtl', textAlign: 'right', backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px' }}
-                    formatter={(value: any) => [`${toPersianDigits(value)} نفر`, 'تعداد']}
-                  />
-                  <Bar dataKey="count" fill="#059669" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                رکوردی جهت نمایش در نمودار یافت نشد
-              </div>
-            )}
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={metrics.monthlyStats} margin={{ top: 15, right: 15, left: 15, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#334155' }} />
+                <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#059669' }} orientation="right" allowDecimals={false} />
+                <YAxis yAxisId="right" tick={{ fontSize: 10, fill: '#6366f1' }} orientation="left" />
+                <RechartsTooltip 
+                  contentStyle={{ direction: 'rtl', textAlign: 'right', backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px' }}
+                  formatter={(val: any, name: any) => {
+                    if (name === 'hires') return [`${toPersianDigits(val)} نفر`, 'استخدام جدید'];
+                    if (name === 'payrollMillion') return [`${toPersianDigits(val)} میلیون تومان`, 'بودجه حقوق ماهانه'];
+                    return [val, name];
+                  }}
+                />
+                <Bar yAxisId="left" dataKey="hires" fill="#059669" name="hires" radius={[6, 6, 0, 0]} />
+                <Bar yAxisId="right" dataKey="payrollMillion" fill="#6366f1" name="payrollMillion" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Recommended Contract Periods Breakdown Pie Chart */}
+          <div className="lg:col-span-6 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  <span>ترکیب قراردادهای پیشنهادی هوشمند</span>
+                </h3>
+                <PieIcon className="w-5 h-5 text-emerald-600" />
+              </div>
+              <span className="text-xs text-slate-400">توزیع قراردادهای ۱ ماهه، ۳ ماهه، ۶ ماهه و سالانه بر اساس سابقه و رتبه</span>
 
-      </div>
+              <div className="h-56 w-full mt-2">
+                {metrics.recChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={metrics.recChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={45}
+                        outerRadius={80}
+                        paddingAngle={4}
+                        dataKey="value"
+                      >
+                        {metrics.recChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        contentStyle={{ direction: 'rtl', textAlign: 'right', backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px' }}
+                        formatter={(val: any) => [`${toPersianDigits(val)} نفر`, 'تعداد']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                    داده‌ای یافت نشد
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-3 border-t border-slate-100">
+              {metrics.recChartData.map((item) => (
+                <div 
+                  key={item.name} 
+                  className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-[11px]"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="text-slate-600 truncate max-w-[90px]">{item.name}</span>
+                  </div>
+                  <span className="font-black text-slate-900">{toPersianDigits(item.value)} نفر</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Department Distribution Bar Chart */}
+          <div className="lg:col-span-6 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black text-slate-800">
+                  توزیع پرسنل در دپارتمان‌های مختلف
+                </h3>
+                <span className="text-xs text-slate-400">تعداد نیروی انسانی بر اساس واحد سازمانی</span>
+              </div>
+              <BarChart3 className="w-5 h-5 text-emerald-600" />
+            </div>
+
+            <div className="h-64 w-full">
+              {metrics.deptChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={metrics.deptChartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} interval={0} angle={-15} textAnchor="end" />
+                    <YAxis tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
+                    <RechartsTooltip 
+                      contentStyle={{ direction: 'rtl', textAlign: 'right', backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px' }}
+                      formatter={(value: any) => [`${toPersianDigits(value)} نفر`, 'تعداد']}
+                    />
+                    <Bar dataKey="count" fill="#059669" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                  رکوردی جهت نمایش در نمودار یافت نشد
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 7. Main Interactive Report Data Table (100% Synchronized with Exports) */}

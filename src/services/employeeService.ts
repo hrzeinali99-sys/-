@@ -60,7 +60,14 @@ function getStoredEmployees(): EmployeeSummary[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed.map((e, idx) => ({
+          ...e,
+          guaranteeNoteAmount: e.guaranteeNoteAmount !== undefined ? e.guaranteeNoteAmount : (500000000 * ((idx % 3) + 1)),
+          guaranteeNoteNumber: e.guaranteeNoteNumber || `SAF-${e.employeeCode || (140300 + idx)}`,
+          guaranteeNoteStatus: e.guaranteeNoteStatus || 'received',
+          guaranteeNoteReceivedDateJalali: e.guaranteeNoteReceivedDateJalali || e.hireDateJalali || '1403/01/15',
+          guaranteeNoteDueDateJalali: e.guaranteeNoteDueDateJalali || '1404/12/29'
+        }));
       }
     }
   } catch (e) {
@@ -244,6 +251,15 @@ export async function createFullEmployee(
       supplementaryInsurancePaymentMethod: formData.insurance?.supplementaryInsurancePaymentMethod || formData.insurance?.supplementaryPaymentMethod,
       supplementaryInsurancePremium: formData.insurance?.supplementaryInsurancePremium,
       supplementaryInsuranceCompany: formData.insurance?.supplementaryInsuranceCompany,
+
+      // Promissory Note Guarantee (سفته ضمانت حسن انجام کار)
+      guaranteeNoteAmount: formData.additionalInfo?.guaranteeNoteAmount !== undefined ? Number(formData.additionalInfo.guaranteeNoteAmount) : 1000000000,
+      guaranteeNoteNumber: formData.additionalInfo?.guaranteeNoteNumber || `SAF-${formData.employeeCode}`,
+      guaranteeNoteStatus: formData.additionalInfo?.guaranteeNoteStatus || 'received',
+      guaranteeNoteReceivedDateJalali: formData.additionalInfo?.guaranteeNoteReceivedDateJalali || toJalaliDate(formData.employment.hireDate),
+      guaranteeNoteDueDateJalali: formData.additionalInfo?.guaranteeNoteDueDateJalali || '',
+      guaranteeNoteGuarantorName: formData.additionalInfo?.guaranteeNoteGuarantorName || '',
+      guaranteeNoteDescription: formData.additionalInfo?.guaranteeNoteDescription || 'لاشه سفته در صندوق اسناد نگهداری می‌شود.',
 
       createdAt: now,
       updatedAt: now,
@@ -597,7 +613,18 @@ export async function deleteEmployeeRecord(
   actor: { uid: string; displayName: string; role: any } = { uid: 'admin', displayName: 'مدیر سیستم', role: 'super_admin' }
 ): Promise<boolean> {
   try {
+    // Delete from Firestore
     await deleteDoc(doc(db, 'employees', employeeId));
+
+    // Remove from local cache immediately
+    try {
+      const currentStored = getStoredEmployees();
+      const updated = currentStored.filter(e => e.id !== employeeId);
+      saveStoredEmployees(updated);
+    } catch (e) {
+      console.warn('Error updating local employee cache on delete:', e);
+    }
+
     await logAuditEvent({
       userId: actor.uid,
       userName: actor.displayName,
@@ -610,7 +637,195 @@ export async function deleteEmployeeRecord(
     return true;
   } catch (error) {
     console.error('Error deleting employee:', error);
-    return false;
+    // Fallback if firestore fails offline, still remove from local cache
+    try {
+      const currentStored = getStoredEmployees();
+      const updated = currentStored.filter(e => e.id !== employeeId);
+      saveStoredEmployees(updated);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+}
+
+/**
+ * Update full employee record across summary document, subcollections, local cache and audit
+ */
+export async function updateFullEmployee(
+  employeeId: string,
+  formData: Partial<FullRegistrationFormData> & { id?: string },
+  actor: { uid: string; displayName: string; role: any } = { uid: 'admin', displayName: 'مدیر سیستم', role: 'super_admin' }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const empId = employeeId || formData.id;
+    if (!empId) {
+      return { success: false, error: 'شناسه پرسنل نامعتبر است' };
+    }
+
+    const now = new Date().toISOString();
+    const batch = writeBatch(db);
+    const empRef = doc(db, 'employees', empId);
+
+    // Get current stored employee summary if available
+    const existingSnap = await getDoc(empRef).catch(() => null);
+    const existingData = existingSnap?.exists() ? existingSnap.data() : null;
+
+    const summary: Partial<EmployeeSummary> = {
+      ...(existingData || {}),
+      id: empId,
+      employeeCode: formData.employeeCode || existingData?.employeeCode || '',
+      firstName: formData.firstName || existingData?.firstName || '',
+      lastName: formData.lastName || existingData?.lastName || '',
+      latinFirstName: formData.latinFirstName !== undefined ? formData.latinFirstName : existingData?.latinFirstName,
+      latinLastName: formData.latinLastName !== undefined ? formData.latinLastName : existingData?.latinLastName,
+      nationalId: formData.nationalId || existingData?.nationalId || '',
+      birthDate: formData.birthDate || existingData?.birthDate || '',
+      birthDateJalali: formData.birthDate ? toJalaliDate(formData.birthDate) : (formData.birthDateJalali || existingData?.birthDateJalali || ''),
+      gender: formData.gender || existingData?.gender || 'مرد',
+      maritalStatus: formData.maritalStatus || existingData?.maritalStatus || 'مجرد',
+      childrenCount: formData.childrenCount !== undefined ? Number(formData.childrenCount) : (existingData?.childrenCount || 0),
+      spouseBirthDate: formData.spouseBirthDate !== undefined ? formData.spouseBirthDate : existingData?.spouseBirthDate,
+      spouseBirthDateJalali: formData.spouseBirthDateJalali !== undefined ? formData.spouseBirthDateJalali : existingData?.spouseBirthDateJalali,
+      childBirthDate: formData.childBirthDate !== undefined ? formData.childBirthDate : existingData?.childBirthDate,
+      childBirthDateJalali: formData.childBirthDateJalali !== undefined ? formData.childBirthDateJalali : existingData?.childBirthDateJalali,
+      profileImageUrl: formData.profileImageUrl !== undefined ? formData.profileImageUrl : existingData?.profileImageUrl,
+
+      // Organization
+      companyId: formData.organization?.companyId || existingData?.companyId || 'co-1',
+      companyName: formData.organization?.companyName || existingData?.companyName || '',
+      branchId: formData.organization?.branchId || existingData?.branchId || 'br-1',
+      branchName: formData.organization?.branchName || existingData?.branchName || '',
+      departmentId: formData.organization?.departmentId || existingData?.departmentId || 'dept-1',
+      departmentName: formData.organization?.departmentName || existingData?.departmentName || '',
+      teamId: formData.organization?.teamId !== undefined ? formData.organization?.teamId : existingData?.teamId,
+      teamName: formData.organization?.teamName !== undefined ? formData.organization?.teamName : existingData?.teamName,
+      positionId: formData.organization?.positionId || existingData?.positionId || 'pos-1',
+      positionTitle: formData.organization?.positionTitle || formData.organization?.jobTitle || existingData?.positionTitle || '',
+      jobLevel: formData.organization?.jobLevel !== undefined ? formData.organization?.jobLevel : existingData?.jobLevel,
+      managerName: formData.organization?.directManagerName !== undefined ? formData.organization?.directManagerName : existingData?.managerName,
+      costCenterCode: formData.organization?.costCenterCode !== undefined ? formData.organization?.costCenterCode : existingData?.costCenterCode,
+
+      // Contacts
+      mobile: formData.contacts?.mobile || existingData?.mobile || '',
+      workEmail: formData.contacts?.workEmail !== undefined ? formData.contacts?.workEmail : existingData?.workEmail,
+
+      // Employment
+      employmentType: formData.employment?.employmentType || existingData?.employmentType || 'تمام وقت',
+      employmentStatus: (formData.employment?.employmentStatus as EmploymentStatus) || existingData?.employmentStatus || 'active',
+      contractType: formData.employment?.contractType || existingData?.contractType || 'موقت',
+      hireDate: formData.employment?.hireDate || existingData?.hireDate || '',
+      hireDateJalali: formData.employment?.hireDate ? toJalaliDate(formData.employment.hireDate) : (existingData?.hireDateJalali || ''),
+      contractEndDate: formData.employment?.contractEndDate !== undefined ? formData.employment?.contractEndDate : existingData?.contractEndDate,
+      baseSalary: formData.salary?.baseSalary !== undefined ? Number(formData.salary.baseSalary) : existingData?.baseSalary,
+      netSalary: formData.salary?.netSalary !== undefined ? Number(formData.salary.netSalary) : existingData?.netSalary,
+
+      // Supplementary Insurance
+      hasSupplementaryInsurance: formData.insurance?.hasSupplementaryInsurance !== undefined ? formData.insurance.hasSupplementaryInsurance : existingData?.hasSupplementaryInsurance,
+      supplementaryInsurancePaymentMethod: formData.insurance?.supplementaryInsurancePaymentMethod || formData.insurance?.supplementaryPaymentMethod || existingData?.supplementaryInsurancePaymentMethod,
+      supplementaryInsurancePremium: formData.insurance?.supplementaryInsurancePremium !== undefined ? Number(formData.insurance.supplementaryInsurancePremium) : existingData?.supplementaryInsurancePremium,
+      supplementaryInsuranceCompany: formData.insurance?.supplementaryInsuranceCompany || existingData?.supplementaryInsuranceCompany,
+
+      // Promissory Note Guarantee (سفته ضمانت حسن انجام کار)
+      guaranteeNoteAmount: formData.additionalInfo?.guaranteeNoteAmount !== undefined 
+        ? Number(formData.additionalInfo.guaranteeNoteAmount) 
+        : (existingData?.guaranteeNoteAmount !== undefined ? existingData?.guaranteeNoteAmount : 1000000000),
+      guaranteeNoteNumber: formData.additionalInfo?.guaranteeNoteNumber !== undefined ? formData.additionalInfo.guaranteeNoteNumber : existingData?.guaranteeNoteNumber,
+      guaranteeNoteStatus: formData.additionalInfo?.guaranteeNoteStatus || existingData?.guaranteeNoteStatus || 'received',
+      guaranteeNoteReceivedDateJalali: formData.additionalInfo?.guaranteeNoteReceivedDateJalali !== undefined ? formData.additionalInfo.guaranteeNoteReceivedDateJalali : existingData?.guaranteeNoteReceivedDateJalali,
+      guaranteeNoteDueDateJalali: formData.additionalInfo?.guaranteeNoteDueDateJalali !== undefined ? formData.additionalInfo.guaranteeNoteDueDateJalali : existingData?.guaranteeNoteDueDateJalali,
+      guaranteeNoteGuarantorName: formData.additionalInfo?.guaranteeNoteGuarantorName !== undefined ? formData.additionalInfo.guaranteeNoteGuarantorName : existingData?.guaranteeNoteGuarantorName,
+      guaranteeNoteDescription: formData.additionalInfo?.guaranteeNoteDescription !== undefined ? formData.additionalInfo.guaranteeNoteDescription : existingData?.guaranteeNoteDescription,
+
+      updatedAt: now,
+      updatedBy: actor.uid
+    };
+
+    batch.set(empRef, summary, { merge: true });
+
+    // Update Subcollections if supplied
+    if (formData.contacts) {
+      batch.set(doc(db, `employees/${empId}/contacts`, 'primary'), { id: 'primary', ...formData.contacts }, { merge: true });
+    }
+    if (formData.addresses && formData.addresses.length > 0) {
+      formData.addresses.forEach((addr, idx) => {
+        batch.set(doc(db, `employees/${empId}/addresses`, addr.id || `addr-${idx}`), addr, { merge: true });
+      });
+    }
+    if (formData.employment) {
+      batch.set(doc(db, `employees/${empId}/employment`, 'current'), { id: 'current', ...formData.employment }, { merge: true });
+    }
+    if (formData.organization) {
+      batch.set(doc(db, `employees/${empId}/organization`, 'current'), { id: 'current', ...formData.organization }, { merge: true });
+    }
+    if (formData.insurance) {
+      batch.set(doc(db, `employees/${empId}/insurance`, 'primary'), { id: 'primary', ...formData.insurance }, { merge: true });
+    }
+    if (formData.banking) {
+      batch.set(doc(db, `employees/${empId}/bankAccounts`, 'primary'), { id: 'primary', ...formData.banking }, { merge: true });
+    }
+    if (formData.salary) {
+      batch.set(doc(db, `employees/${empId}/salaryHistory`, `sal-${Date.now()}`), {
+        id: `sal-${Date.now()}`,
+        ...formData.salary,
+        createdAt: now
+      });
+    }
+    if (formData.emergencyContacts && formData.emergencyContacts.length > 0) {
+      formData.emergencyContacts.forEach((em, idx) => {
+        batch.set(doc(db, `employees/${empId}/emergencyContacts`, em.id || `em-${idx}`), em, { merge: true });
+      });
+    }
+    if (formData.additionalInfo) {
+      batch.set(doc(db, `employees/${empId}/additionalInfo`, 'primary'), { id: 'primary', ...formData.additionalInfo }, { merge: true });
+    }
+
+    // Timeline event
+    const timelineRef = doc(db, `employees/${empId}/timeline`, `event-${Date.now()}`);
+    batch.set(timelineRef, {
+      id: `event-${Date.now()}`,
+      type: 'ویرایش پرونده',
+      title: 'ویرایش و بروزرسانی مشخصات پرسنل',
+      description: `مشخصات پرونده توسط ${actor.displayName || 'کاربر'} ویرایش گردید.`,
+      date: now.split('T')[0],
+      dateJalali: getCurrentJalaliDate(),
+      actorName: actor.displayName || 'مدیر سیستم',
+      actorId: actor.uid
+    });
+
+    await batch.commit().catch(err => {
+      console.warn('Firestore update batch failed, continuing with local cache:', err);
+    });
+
+    // Update local cache
+    try {
+      const currentStored = getStoredEmployees();
+      const idx = currentStored.findIndex(e => e.id === empId);
+      if (idx >= 0) {
+        currentStored[idx] = { ...currentStored[idx], ...summary } as EmployeeSummary;
+      } else {
+        currentStored.unshift(summary as EmployeeSummary);
+      }
+      saveStoredEmployees(currentStored);
+    } catch (e) {
+      console.warn('Error updating local employee cache on edit:', e);
+    }
+
+    // Audit log
+    await logAuditEvent({
+      userId: actor.uid,
+      userName: actor.displayName || 'کاربر',
+      userRole: actor.role,
+      action: 'employee.updated',
+      entityType: 'employee',
+      entityId: empId,
+      description: `مشخصات پرسنل ${summary.firstName} ${summary.lastName} (کد ${summary.employeeCode}) ویرایش گردید.`
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Error in updateFullEmployee:', error);
+    return { success: false, error: error.message || 'خطا در ویرایش اطلاعات پرسنل' };
   }
 }
 

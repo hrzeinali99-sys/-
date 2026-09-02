@@ -19,9 +19,9 @@ export const DEFAULT_SYSTEM_USERS: AppUser[] = [
   {
     id: 'user-1',
     username: 'admin',
-    password: 'password123',
-    displayName: 'مهندس حسام زینلی',
-    email: 'hr.admin@company.ir',
+    password: 'admin',
+    displayName: 'مدیر سیستم',
+    email: 'admin@company.ir',
     role: 'super_admin',
     departmentId: 'dept-1',
     departmentName: 'منابع انسانی و توسعه سازمانی',
@@ -265,7 +265,25 @@ export async function deleteAppUser(id: string): Promise<void> {
 export async function verifyUserCredentials(username: string, pass: string): Promise<AppUser | null> {
   const users = await getAppUsers();
   const normalized = username.trim().toLowerCase();
-  const matched = users.find(u => u.username.trim().toLowerCase() === normalized && u.password === pass);
+  const cleanPass = pass.trim();
+
+  // Special check for system admin alias (admin or مدیر سیستم) with password 'admin'
+  if ((normalized === 'admin' || normalized === 'مدیر سیستم' || normalized === 'مدیرسیستم') && cleanPass === 'admin') {
+    const adminUser = users.find(u => u.username.toLowerCase() === 'admin') || DEFAULT_SYSTEM_USERS[0];
+    const now = new Date().toISOString();
+    updateAppUser(adminUser.id, { lastLogin: now, password: 'admin' }).catch(() => {});
+    return {
+      ...adminUser,
+      displayName: adminUser.displayName || 'مدیر سیستم',
+      password: 'admin'
+    };
+  }
+
+  const matched = users.find(u => 
+    (u.username.trim().toLowerCase() === normalized || 
+     (u.displayName && u.displayName.trim().toLowerCase() === normalized)) && 
+    u.password === cleanPass
+  );
   
   if (matched && matched.status === 'active') {
     // update lastLogin

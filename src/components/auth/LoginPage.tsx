@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
 import { 
-  Building2, Shield, Lock, User, Eye, EyeOff, 
-  ArrowLeft, CheckCircle2, AlertCircle, Sparkles, Key, 
-  Users, UserCheck, ShieldCheck, HelpCircle, RefreshCw
+  Lock, User, Eye, EyeOff, 
+  ArrowLeft, AlertCircle, Sparkles, Key, 
+  Users, ShieldCheck, RefreshCw
 } from 'lucide-react';
-import { useAuth, DEMO_PROFILES } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 
 export const LoginPage: React.FC = () => {
   const { 
-    signInWithUsernameOrEmail, 
-    loginAsDemoUser, 
-    signInWithGoogle 
+    signInWithUsernameOrEmail
   } = useAuth();
 
   const [username, setUsername] = useState('');

@@ -10,6 +10,8 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
 import { UserProfile, UserRole } from '../types';
+import { verifyUserCredentials } from '../services/userService';
+import { logAuditEvent } from '../services/auditService';
 
 interface AuthContextType {
   user: User | null;
@@ -33,9 +35,10 @@ export const DEMO_PROFILES: Record<UserRole, UserProfile> = {
   super_admin: {
     uid: 'admin-super',
     email: 'admin@company.ir',
-    displayName: 'مهندس حسام زینلی (مدیر ارشد سامانه)',
+    displayName: 'مدیر سیستم',
     role: 'super_admin',
     departmentId: 'dept-1',
+    departmentName: 'مدیریت ارشد سامانه',
     photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     createdAt: new Date().toISOString()
   },
@@ -99,15 +102,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // fallback
     }
-    return DEFAULT_ADMIN_PROFILE;
+    return null;
   });
   const [role, setRole] = useState<UserRole>(() => profile?.role || 'super_admin');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_AUTH_KEY);
-      return saved !== null;
+      return Boolean(saved);
     } catch {
-      return true;
+      return false;
     }
   });
   const [loading, setLoading] = useState<boolean>(true);
@@ -162,12 +165,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setRole(parsed.role || 'super_admin');
             setIsAuthenticated(true);
           } catch {
-            setProfile(DEFAULT_ADMIN_PROFILE);
-            setRole('super_admin');
-            setIsAuthenticated(true);
+            setProfile(null);
+            setIsAuthenticated(false);
           }
         } else {
-          // If explicitly signed out
+          // If explicitly signed out or not logged in
           setProfile(null);
           setIsAuthenticated(false);
         }
@@ -199,49 +201,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signInWithUsernameOrEmail = async (usernameOrEmail: string, pass: string) => {
-    const clean = usernameOrEmail.trim().toLowerCase();
-    
-    // Check if it matches demo accounts
-    if (clean === 'admin' || clean === 'admin@company.ir') {
-      loginAsDemoUser('super_admin');
-      return;
+    const cleanUsername = usernameOrEmail.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    if (!cleanUsername) {
+      throw new Error('لطفاً نام کاربری را وارد نمایید.');
     }
-    if (clean === 'hr' || clean === 'hr.admin' || clean === 'hr.admin@company.ir') {
-      loginAsDemoUser('hr_admin');
-      return;
+    if (!cleanPass) {
+      throw new Error('لطفاً گذرواژه را وارد نمایید.');
     }
-    if (clean === 'manager' || clean === 'hr.manager' || clean === 'hr.manager@company.ir') {
-      loginAsDemoUser('hr_manager');
-      return;
-    }
-    if (clean === 'finance' || clean === 'finance@company.ir') {
-      loginAsDemoUser('finance');
+
+    // 1. First, check against registered system users (Firestore app_users and local database)
+    const matchedUser = await verifyUserCredentials(cleanUsername, cleanPass);
+    if (matchedUser) {
+      if (matchedUser.status === 'inactive') {
+        throw new Error('حساب کاربری شما غیرفعال شده است. لطفاً با مدیر سیستم تماس بگیرید.');
+      }
+
+      const userProfile: UserProfile = {
+        uid: matchedUser.id,
+        email: matchedUser.email || `${matchedUser.username}@company.ir`,
+        displayName: matchedUser.displayName,
+        role: matchedUser.role,
+        departmentId: matchedUser.departmentId,
+        departmentName: matchedUser.departmentName,
+        photoURL: matchedUser.photoURL || '',
+        createdAt: matchedUser.createdAt
+      };
+
+      setProfile(userProfile);
+      setRole(matchedUser.role);
+      setIsAuthenticated(true);
+      localStorage.setItem(STORAGE_AUTH_KEY, JSON.stringify(userProfile));
+
+      logAuditEvent({
+        userId: matchedUser.id,
+        userName: matchedUser.displayName,
+        userRole: matchedUser.role,
+        action: 'LOGIN',
+        entityType: 'user',
+        entityId: matchedUser.id,
+        description: `کاربر ${matchedUser.displayName} (${matchedUser.username}) با موفقیت وارد سامانه شد.`
+      }).catch(() => {});
+
       return;
     }
 
-    // Otherwise try Firebase Auth
-    const emailToUse = clean.includes('@') ? clean : `${clean}@company.ir`;
+    // 2. Second, attempt Firebase Auth if credentials were created via Firebase Auth
+    const emailToUse = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@company.ir`;
     try {
-      await signInWithEmailAndPassword(auth, emailToUse, pass);
-      setIsAuthenticated(true);
-    } catch (error: any) {
-      // If user provided any valid username & password in test mode, allow graceful login
-      if (pass.length >= 4) {
-        const customProfile: UserProfile = {
-          uid: `user-${Date.now()}`,
-          email: emailToUse,
-          displayName: usernameOrEmail,
-          role: 'hr_admin',
-          createdAt: new Date().toISOString()
-        };
-        setProfile(customProfile);
-        setRole('hr_admin');
+      const fbRes = await signInWithEmailAndPassword(auth, emailToUse, cleanPass);
+      if (fbRes.user) {
         setIsAuthenticated(true);
-        localStorage.setItem(STORAGE_AUTH_KEY, JSON.stringify(customProfile));
         return;
       }
-      throw error;
+    } catch (fbErr: any) {
+      // Firebase auth failed
     }
+
+    // 3. If credentials do not match any active system user, reject access!
+    throw new Error('نام کاربری یا گذرواژه وارد شده نادرست است.');
   };
 
   const signUpWithEmail = async (email: string, pass: string, name: string, newRole: UserRole = 'hr_admin') => {

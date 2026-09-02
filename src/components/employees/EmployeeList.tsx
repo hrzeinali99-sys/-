@@ -13,6 +13,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toJalaliDate } from '../../utils/persianDate';
 import { formatRial } from '../../utils/formatters';
 import { ExcelImportModal } from './ExcelImportModal';
+import { EmployeeEditModal } from './EmployeeEditModal';
 import { FileSignature } from 'lucide-react';
 
 interface Props {
@@ -34,6 +35,7 @@ export const EmployeeList: React.FC<Props> = ({ onSelectEmployee, onNewEmployee,
   const [selectedContract, setSelectedContract] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const itemsPerPage = 10;
 
   const fetchList = async () => {
@@ -356,9 +358,18 @@ export const EmployeeList: React.FC<Props> = ({ onSelectEmployee, onNewEmployee,
                           type="button"
                           onClick={() => onSelectEmployee(emp.id)}
                           className="p-1.5 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                          title="مشاهده پرونده ۳۶۰ درجه"
+                          title="مشاهده پرونده جامع ۳۶۰ درجه"
                         >
                           <Eye className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditingEmployeeId(emp.id)}
+                          className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                          title="ویرایش کلیه مشخصات پرسنل"
+                        >
+                          <Edit className="w-4 h-4" />
                         </button>
 
                         {onOpenContract && (
@@ -373,11 +384,10 @@ export const EmployeeList: React.FC<Props> = ({ onSelectEmployee, onNewEmployee,
                         )}
 
                         {canAccess('employee.delete') && (
-
                           <button
                             type="button"
                             onClick={() => handleDelete(emp)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="حذف پرونده"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -441,6 +451,19 @@ export const EmployeeList: React.FC<Props> = ({ onSelectEmployee, onNewEmployee,
           fetchList();
         }}
       />
+
+      {/* Comprehensive Employee Edit Modal */}
+      {editingEmployeeId && (
+        <EmployeeEditModal
+          employeeId={editingEmployeeId}
+          isOpen={Boolean(editingEmployeeId)}
+          onClose={() => setEditingEmployeeId(null)}
+          onSuccess={() => {
+            fetchList();
+            setEditingEmployeeId(null);
+          }}
+        />
+      )}
     </div>
   );
 };

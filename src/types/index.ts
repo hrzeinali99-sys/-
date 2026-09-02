@@ -47,6 +47,7 @@ export interface UserProfile {
   role: UserRole;
   employeeId?: string;
   departmentId?: string;
+  departmentName?: string;
   photoURL?: string;
   phoneNumber?: string;
   createdAt?: string;
@@ -61,6 +62,7 @@ export interface AppUser {
   role: UserRole;
   departmentId?: string;
   departmentName?: string;
+  photoURL?: string;
   status: 'active' | 'inactive';
   customPermissions?: string[];
   phoneNumber?: string;
@@ -159,6 +161,17 @@ export interface EmployeeSummary {
   supplementaryInsurancePaymentMethod?: SupplementaryInsurancePaymentMethod;
   supplementaryInsurancePremium?: number; // ریال
   supplementaryInsuranceCompany?: string;
+
+  // Promissory Note Guarantee (سفته ضمانت حسن انجام کار و تعهدات)
+  guaranteeNoteAmount?: number; // مبلغ سفته ضمانت به ریال
+  guaranteeNoteNumber?: string; // شماره لاشه / سریال سفته
+  guaranteeNoteStatus?: 'received' | 'not_received' | 'returned' | 'deposited'; // وضعیت سفته
+  guaranteeNoteReceivedDate?: string; // تاریخ تحویل (میلادی)
+  guaranteeNoteReceivedDateJalali?: string; // تاریخ تحویل (شمسی)
+  guaranteeNoteDueDate?: string; // تاریخ سررسید (میلادی)
+  guaranteeNoteDueDateJalali?: string; // تاریخ سررسید (شمسی)
+  guaranteeNoteGuarantorName?: string; // نام و مشخصات ضامن
+  guaranteeNoteDescription?: string; // توضیحات و محل نگهداری لاشه در صندوق/بایگانی
 
   // System metadata
   createdAt: string;
@@ -434,6 +447,17 @@ export interface AdditionalInfo {
   internalNotes?: string;
   specialTalents?: string;
   hobbies?: string;
+
+  // Promissory Note Guarantee (سفته ضمانت حسن انجام کار)
+  guaranteeNoteAmount?: number;
+  guaranteeNoteNumber?: string;
+  guaranteeNoteStatus?: 'received' | 'not_received' | 'returned' | 'deposited';
+  guaranteeNoteReceivedDate?: string;
+  guaranteeNoteReceivedDateJalali?: string;
+  guaranteeNoteDueDate?: string;
+  guaranteeNoteDueDateJalali?: string;
+  guaranteeNoteGuarantorName?: string;
+  guaranteeNoteDescription?: string;
 }
 
 // Subcollection: timeline
@@ -476,6 +500,7 @@ export interface FullRegistrationFormData {
   idSerialSeries?: string; // سری شناسنامه
   idSerialNumber?: string; // سریال شناسنامه
   birthDate: string;
+  birthDateJalali?: string;
   birthProvince?: string;
   birthCity?: string;
   birthPlace?: string;

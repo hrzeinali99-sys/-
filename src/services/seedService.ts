@@ -209,6 +209,15 @@ export async function seedDatabase(
           baseSalary,
           netSalary,
 
+          // Promissory Note Guarantee (سفته ضمانت حسن انجام کار)
+          guaranteeNoteAmount: (empIndex % 5 === 0) ? 2000000000 : (empIndex % 2 === 0 ? 1000000000 : 500000000), // 50, 100 یا 200 میلیون تومان
+          guaranteeNoteNumber: `SAF-${140300 + empIndex}`,
+          guaranteeNoteStatus: empIndex % 15 === 0 ? 'not_received' : (empIndex % 20 === 0 ? 'returned' : 'received'),
+          guaranteeNoteReceivedDateJalali: hireJalali,
+          guaranteeNoteDueDateJalali: `${1404 + (empIndex % 2)}/12/29`,
+          guaranteeNoteGuarantorName: `ضامن معتبر (کاسب / کارمند رسمی) - ردیف ${empIndex}`,
+          guaranteeNoteDescription: 'لاشه سفته در گاوصندوق مرکزی واحد منابع انسانی و حراست نگهداری می‌شود.',
+
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           createdBy: 'system-seeder',

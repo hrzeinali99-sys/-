@@ -3,7 +3,8 @@ import {
   User, Phone, MapPin, Users, Briefcase, Layers, GraduationCap, History, 
   Sparkles, ShieldCheck, CreditCard, DollarSign, FileText, PhoneCall, 
   FileBadge, CheckSquare, Printer, Edit, Trash2, ArrowRight, ShieldAlert, 
-  Clock, Download, Eye, Plus, CheckCircle2, Lock, Building, Calendar, AlertTriangle, Heart, Umbrella
+  Clock, Download, Eye, Plus, CheckCircle2, Lock, Building, Calendar, AlertTriangle, Heart, Umbrella,
+  Coins, FileCheck
 } from 'lucide-react';
 import { 
   Employee, FullRegistrationFormData, EmployeeSummary, 
@@ -21,6 +22,7 @@ import { getDocumentExpiryStatus } from '../../services/documentService';
 import { formatToman, formatRial, formatFileSize } from '../../utils/formatters';
 import { toJalaliDate, toJalaliDateTime, calculateAge, calculateAgeFromJalali } from '../../utils/persianDate';
 import { useAuth } from '../../context/AuthContext';
+import { EmployeeEditModal } from './EmployeeEditModal';
 
 interface Props {
   employeeId: string;
@@ -30,11 +32,42 @@ interface Props {
 }
 
 export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit, onOpenContract }) => {
-  const { role, canAccess } = useAuth();
+  const { user, role, canAccess } = useAuth();
   const [profileData, setProfileData] = useState<Partial<FullRegistrationFormData> | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('identity');
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!canAccess('employee.delete')) {
+      alert('شما دسترسی مجاز برای حذف پرسنل را ندارید.');
+      return;
+    }
+
+    const confirmed = window.confirm(`آیا از حذف کامل پرونده «${profileData?.firstName} ${profileData?.lastName}» (کد ${profileData?.employeeCode}) اطمینان قطعی دارید؟\nاین عملیات غیرقابل بازگشت است.`);
+    if (!confirmed) return;
+
+    setDeleting(true);
+    try {
+      const success = await deleteEmployeeRecord(employeeId, {
+        uid: user?.uid || 'admin',
+        displayName: user?.displayName || 'مدیر سیستم',
+        role: role || 'super_admin'
+      });
+      if (success) {
+        alert('پرونده پرسنل با موفقیت حذف گردید.');
+        onBack();
+      } else {
+        alert('خطا در حذف پرونده پرسنل.');
+      }
+    } catch (e: any) {
+      alert(e.message || 'خطا در حذف پرونده');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
 
   const fetchProfile = async () => {
@@ -82,6 +115,7 @@ export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit
     { id: 'identity', label: 'اطلاعات هویتی و سکونت', icon: User },
     { id: 'employment', label: 'جایگاه سازمانی و قرارداد', icon: Briefcase },
     { id: 'salary', label: 'حقوق، مزایا و بانک', icon: DollarSign },
+    { id: 'guarantee', label: 'سفته ضمانت و تضامین', icon: ShieldCheck },
     { id: 'education', label: 'سوابق تحصیلی و تجربیات', icon: GraduationCap },
     { id: 'family', label: 'خانواده و تکفل', icon: Users },
     { id: 'skills', label: 'مهارت‌ها و زبان‌ها', icon: Sparkles },
@@ -98,17 +132,28 @@ export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Top Action Bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-emerald-700 bg-white hover:bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-2xl shadow-2xs transition-colors"
+          className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-emerald-700 bg-white hover:bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-2xl shadow-2xs transition-colors cursor-pointer"
         >
           <ArrowRight className="w-4 h-4" />
           بازگشت به بانک پرسنل
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canAccess('employee.update') && (
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+            >
+              <Edit className="w-4 h-4" />
+              ویرایش کامل پرونده
+            </button>
+          )}
+
           {onOpenContract && (
             <button
               type="button"
@@ -123,11 +168,23 @@ export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit
           <button
             type="button"
             onClick={handlePrintCertificate}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold shadow-2xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold shadow-2xs transition-colors cursor-pointer"
           >
             <Printer className="w-4 h-4 text-slate-500" />
             چاپ پرونده پرسنلی
           </button>
+
+          {canAccess('employee.delete') && (
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={handleDelete}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100/80 border border-rose-200 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4 text-rose-600" />
+              <span>{deleting ? 'در حال حذف...' : 'حذف پرونده'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -180,7 +237,7 @@ export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit
           </div>
 
           {/* Quick Metrics */}
-          <div className="grid grid-cols-2 gap-3 w-full md:w-auto text-left">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full md:w-auto text-left">
             <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
               <span className="text-[11px] text-slate-400 block">تاریخ استخدام</span>
               <span className="font-bold text-xs text-slate-800 mt-0.5 block font-mono">
@@ -191,6 +248,12 @@ export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit
               <span className="text-[11px] text-slate-400 block">شعبه محل خدمت</span>
               <span className="font-bold text-xs text-slate-800 mt-0.5 block">
                 {profileData.organization?.branchName || 'دفتر مرکزی'}
+              </span>
+            </div>
+            <div className="p-3 bg-amber-50/60 rounded-2xl border border-amber-200 col-span-2 sm:col-span-1">
+              <span className="text-[11px] text-amber-800 font-medium block">مبلغ سفته ضمانت</span>
+              <span className="font-black text-xs text-amber-950 mt-0.5 block font-mono">
+                {formatToman(profileData.summary?.guaranteeNoteAmount || profileData.additionalInfo?.guaranteeNoteAmount || 1000000000)} تومان
               </span>
             </div>
           </div>
@@ -519,6 +582,133 @@ export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit
                     این پرسنل در طرح بیمه درمان تکمیلی سازمان ثبت‌نام نکرده است.
                   </p>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Promissory Note Guarantee (سفته ضمانت و تضامین حسن انجام کار) */}
+        {activeTab === 'guarantee' && (
+          <div className="space-y-6 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-amber-600" />
+                  پرونده سفته ضمانت حسن انجام کار و اسناد تعهدات
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  ثبت رسمی مبالغ، شماره لاشه، نام ضامن، وضعیت فیزیکی و تحویل در صندوق امانات
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                  (profileData.summary?.guaranteeNoteStatus || profileData.additionalInfo?.guaranteeNoteStatus || 'received') === 'received'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : (profileData.summary?.guaranteeNoteStatus || profileData.additionalInfo?.guaranteeNoteStatus) === 'returned'
+                    ? 'bg-blue-50 text-blue-800 border-blue-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}>
+                  {(profileData.summary?.guaranteeNoteStatus || profileData.additionalInfo?.guaranteeNoteStatus || 'received') === 'received'
+                    ? 'تحویل شده و موجود در صندوق'
+                    : (profileData.summary?.guaranteeNoteStatus || profileData.additionalInfo?.guaranteeNoteStatus) === 'returned'
+                    ? 'عودت داده شده به پرسنل'
+                    : 'در انتظار دریافت لاشه'}
+                </span>
+              </div>
+            </div>
+
+            {/* Main Promissory Note Highlight Banner */}
+            <div className="p-6 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-emerald-500/10 border-2 border-amber-300/80 rounded-3xl relative overflow-hidden shadow-xs">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div className="space-y-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500 text-white rounded-xl text-xs font-bold shadow-xs">
+                    <Coins className="w-3.5 h-3.5" />
+                    مبلغ قطعی سفته حسن انجام کار
+                  </span>
+
+                  <div className="flex items-baseline gap-3 pt-1">
+                    <span className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight">
+                      {formatRial(profileData.summary?.guaranteeNoteAmount || profileData.additionalInfo?.guaranteeNoteAmount || 1000000000)}
+                    </span>
+                    <span className="text-sm font-bold text-slate-600">ریال</span>
+                    <span className="text-sm font-black text-amber-900 bg-amber-100/90 px-3 py-1 rounded-xl border border-amber-300">
+                      معادل {formatToman(profileData.summary?.guaranteeNoteAmount || profileData.additionalInfo?.guaranteeNoteAmount || 1000000000)} تومان
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-600 pt-1">
+                    سند تعهد مالی بابت تضمین حسن انجام کار، حفظ اسرار سازمانی و رعایت مفاد قرارداد استخدامی.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 shrink-0 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white text-slate-800 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold shadow-2xs transition-all cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4 text-slate-600" />
+                    چاپ رسید رسمی امانت سفته
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(true)}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-600/20 transition-all cursor-pointer"
+                  >
+                    <Edit className="w-4 h-4" />
+                    ویرایش مبلغ و اطلاعات سفته
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Detailed Promissory Note Attributes Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-1">
+                <span className="text-slate-400 block text-[11px]">شماره لاشه / شناسه یکتای سفته</span>
+                <span className="font-bold text-slate-900 font-mono text-sm block">
+                  {profileData.summary?.guaranteeNoteNumber || profileData.additionalInfo?.guaranteeNoteNumber || `SAF-${profileData.employeeCode || '140301'}`}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-1">
+                <span className="text-slate-400 block text-[11px]">نام و مشخصات ضامن</span>
+                <span className="font-bold text-slate-900 text-sm block">
+                  {profileData.summary?.guaranteeNoteGuarantorName || profileData.additionalInfo?.guaranteeNoteGuarantorName || 'ضامن معتبر شخص ثالث'}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-1">
+                <span className="text-slate-400 block text-[11px]">تاریخ تحویل به واحد منابع انسانی</span>
+                <span className="font-bold text-slate-900 font-mono text-sm block">
+                  {profileData.summary?.guaranteeNoteReceivedDateJalali || profileData.additionalInfo?.guaranteeNoteReceivedDateJalali || (profileData.employment?.hireDate ? toJalaliDate(profileData.employment.hireDate) : '1403/01/15')}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-1">
+                <span className="text-slate-400 block text-[11px]">تاریخ سررسید / اعتبار سفته</span>
+                <span className="font-bold text-slate-900 font-mono text-sm block">
+                  {profileData.summary?.guaranteeNoteDueDateJalali || profileData.additionalInfo?.guaranteeNoteDueDateJalali || 'همزمان با تسویه حساب نهایی'}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-1 sm:col-span-2">
+                <span className="text-slate-400 block text-[11px]">محل فیزیکی نگهداری و توضیحات</span>
+                <span className="font-semibold text-slate-800 text-xs block leading-relaxed">
+                  {profileData.summary?.guaranteeNoteDescription || profileData.additionalInfo?.guaranteeNoteDescription || 'لاشه سفته در گاوصندوق مرکزی واحد کارگزینی و منابع انسانی نگهداری می‌شود.'}
+                </span>
+              </div>
+            </div>
+
+            {/* Security Guarantee Advisory Note */}
+            <div className="p-4 bg-blue-50/50 border border-blue-200 rounded-2xl flex items-start gap-3">
+              <FileBadge className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-1 text-slate-700">
+                <span className="font-bold text-blue-900 block">نکات حقوقی و حراستی سفته ضمانت:</span>
+                <p className="leading-relaxed">
+                  بر اساس تبصره‌های قانون کار، سفته ضمانت حسن انجام کار صرفاً جنبه امانی داشته و در پایان دوره همکاری و پس از صدور برگه تسویه حساب نهایی، بلافاصله باید به صورت رسمی به پرسنل عودت گردد.
+                </p>
               </div>
             </div>
           </div>
@@ -892,6 +1082,19 @@ export const Employee360Profile: React.FC<Props> = ({ employeeId, onBack, onEdit
           </div>
         )}
       </div>
+
+      {/* Employee Edit Modal */}
+      {isEditModalOpen && (
+        <EmployeeEditModal
+          employeeId={employeeId}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onSuccess={() => {
+            fetchProfile();
+            setIsEditModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 };
