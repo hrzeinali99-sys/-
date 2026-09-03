@@ -265,16 +265,22 @@ export const SEED_CONTRACTS: EmploymentContract[] = [
     createdByName: 'مدیر ارشد منابع انسانی'
   }
 ];
-
 function getStoredContracts(): EmploymentContract[] {
   try {
     const raw = localStorage.getItem(CONTRACTS_LOCAL_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed;   // حتی اگر خالی باشه، همون آرایه خالی رو برگردون
       }
     }
+  } catch (e) {
+    console.warn('Could not read contracts from local storage:', e);
+  }
+  
+  // دیگه Seed خودکار انجام نشه
+  return [];
+}
   } catch (e) {
     console.warn('Could not read contracts from local storage:', e);
   }
